@@ -1,3 +1,3 @@
-/mnt/c/Users/cueva/Documents/AI_notes/06 CarND-Path-Planning-Project/build/CMakeFiles/edit_cache.dir
-/mnt/c/Users/cueva/Documents/AI_notes/06 CarND-Path-Planning-Project/build/CMakeFiles/rebuild_cache.dir
-/mnt/c/Users/cueva/Documents/AI_notes/06 CarND-Path-Planning-Project/build/CMakeFiles/path_planning.dir
+/mnt/c/Users/cueva/Documents/machineLearnig/AI_notes/06 CarND-Path-Planning-Project/build/CMakeFiles/edit_cache.dir
+/mnt/c/Users/cueva/Documents/machineLearnig/AI_notes/06 CarND-Path-Planning-Project/build/CMakeFiles/rebuild_cache.dir
+/mnt/c/Users/cueva/Documents/machineLearnig/AI_notes/06 CarND-Path-Planning-Project/build/CMakeFiles/path_planning.dir

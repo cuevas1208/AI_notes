@@ -16,13 +16,16 @@ using namespace std;
 using json = nlohmann::json;
 
 //reference velocity
-//double ref_vel = 49.5;
 double max_speed = 49.5;
-double changing_lane_speed = 40;
+double changing_lane_speed = 45;
 double max_acceleration = .224;
+int ROAD_LANES = 3;
 
 double ref_vel = 1;
 int goal_lane = 1;
+int confirm_state = 0;
+int changing_lanes_delay = 50;
+bool ok_to_changing_lanes = false;
 
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
@@ -258,16 +261,24 @@ int main() {
             vector<double> ptsx;
             vector<double> ptsy;
 
-            bool changing_lanes = false;
             int my_car_lane = int((((my_car_raw_lane - 2)/4) + ((my_car_raw_lane + 2) /4))/2);
-            if (my_car_lane != goal_lane)
-               changing_lanes = true;
 
-            bool free_lane = true;
             bool too_close = false;
-            bool too_far = false;
+            bool free_lane[3] = {true, true, true};
 
             double goal_speed = max_speed;
+            int lane_car_distance[3] = {1000, 1000, 1000};
+            double front_car_speed[3] = {max_speed, max_speed, max_speed};
+
+            if(my_car_lane == goal_lane){
+                if (!ok_to_changing_lanes)
+                    changing_lanes_delay--;
+                if (changing_lanes_delay == 0)
+                    ok_to_changing_lanes = true;
+            }
+            else
+                ok_to_changing_lanes = false;
+
 
             // iterate every car detected in the sensor fusion
             for(int i = 0; i< sensor_fusion.size(); i++)
@@ -276,60 +287,96 @@ int main() {
                 float sf_car_raw_lane = sensor_fusion[i][6];
                 int sf_car_lane = int((sf_car_raw_lane - 2) /4);
 
+                // if car is within ROAD_LIMIT
+                if(sf_car_lane <= ROAD_LANES && sf_car_lane >= 0){
+                    double vx = sensor_fusion[i][3];                            // x velocity
+                    double vy = sensor_fusion[i][4];                            // y velocity
+                    double sf_car_speed = sqrt(vx*vx+vy*vy);                    // calculate cars speed
+                    double sf_car_track_distance = sensor_fusion[i][5];         // get car distance in the track
+                    // sf_car_track_distance += prev_size * .02 * sf_car_speed;
 
-                // if car is in my lane
-                if(sf_car_lane == my_car_lane){
-                  double vx = sensor_fusion[i][3];                            // x velocity
-                  double vy = sensor_fusion[i][4];                            // y velocity
-                  double sf_car_speed = sqrt(vx*vx+vy*vy);                     // calculate cars speed
-                  double sf_car_track_distance = sensor_fusion[i][5];      // get car distance in the track
-                  // sf_car_track_distance += prev_size * .02 * sf_car_speed;
+                    int cars_distance = sf_car_track_distance - my_track_distance;
 
-                  bool car_is_front = sf_car_track_distance > my_track_distance;
-                  int cars_distance = sf_car_track_distance - my_track_distance;
+                    bool car_is_front = sf_car_track_distance > my_track_distance;
 
-                  if(car_is_front && cars_distance < 20){
-                    too_close = true;
-                    // keep same car speed with in 10 meters till you change lane
+                    if (lane_car_distance[sf_car_lane] > cars_distance && car_is_front){
+                       lane_car_distance[sf_car_lane] = cars_distance;
+                       front_car_speed[sf_car_lane] = sf_car_speed;
+                    }
 
-                    //cout << "\n slowing down" << endl;
-                    //cout << "INFRONT SPEED: " << sf_car_speed << endl;
+                    if(sf_car_lane == my_car_lane){
 
-                    if (sf_car_speed < goal_speed)
-                        goal_speed = sf_car_speed;
-                  }
+                       // if car is in front is less than 30 set too_close flag
+                       if(car_is_front){
+                            if(cars_distance < 30)
+                                too_close = true;
 
-                  if(car_is_front && cars_distance > 50){
-                    too_far = true;
-                  }
+                            if (cars_distance < 50)
+                               free_lane[sf_car_lane] = false;
+                       }
+                    }
 
-                  if(car_is_front)
-                    free_lane = false;
-                    cout  << "\n my car_distance: " <<  sf_car_track_distance-my_track_distance ;
+                    // if lane is around my car lanes
+                    if (ok_to_changing_lanes)
+                        if (sf_car_lane == my_car_lane+1 || sf_car_lane == my_car_lane-1){
+                            //check to see if they are any cars with in +/- 20 meters
+                            if ((cars_distance > -25) && (cars_distance < 25))
+                                free_lane[sf_car_lane] = false;
+                        }
                 }
             }
 
-            if (free_lane || too_far)
+			int want_change_lanes = 0;
+            for (int i =2; i > -1; i--){
+                cout << lane_car_distance[i] << " - " ;
+            }
+            cout << changing_lanes_delay << "-" << my_car_lane << " - " << goal_lane << " - " << endl;
+
+            // accelerate decision
+            if (too_close){
+               //cout << "\n FRONT CAR DISTANCE: " << front_car_distance ;
+               //cout << " SPEED: " << front_car_speed << endl;
+               if (front_car_speed[my_car_lane] < goal_speed)
+                    goal_speed = front_car_speed[my_car_lane] + 2;
+            } else
                 goal_speed = max_speed;
 
+            // change lane decision
+            if (!free_lane[my_car_lane]){
+                    if(ok_to_changing_lanes){
+                        if (my_speed < changing_lane_speed){
+                            want_change_lanes = 1;
+                            // find the best lane
+                            const int N = sizeof(lane_car_distance) / sizeof(int);
+                            int lane_to_go_by_distance = distance(lane_car_distance, max_element(lane_car_distance, lane_car_distance + N));
 
-            if(too_close){
-                /*
-                if(!changing_lanes && my_speed < changing_lane_speed){
-                    cout << "changing lanes" << endl;
-                    if(goal_lane)
-                      goal_lane--;
-                    else
-                      goal_lane++;
-                }
-                */
+                            const int M = sizeof(front_car_speed) / sizeof(double);
+                            int lane_to_go_by_speed = distance(front_car_speed, max_element(front_car_speed, front_car_speed + M));
+
+                            if (lane_to_go_by_distance == lane_to_go_by_speed){
+                                int lane_to_go = lane_to_go_by_distance;
+
+                                // change lane one at the time
+                                if (lane_to_go > my_car_lane)
+                                    lane_to_go = my_car_lane+1;
+                                else if (lane_to_go < my_car_lane)
+                                    lane_to_go = my_car_lane-1;
+
+                                //change lane if lane is free of traffic
+                                if (free_lane[lane_to_go]){
+                                    goal_lane = lane_to_go;
+                                    cout << "changing lane to" << lane_to_go << endl;
+                                    changing_lanes_delay = 50;
+                                }
+                            }
+                        }else
+                            goal_speed--;
+                    }
             }
+
 
             float acceleration = max_acceleration*((goal_speed - ref_vel)/goal_speed);
             ref_vel += acceleration;
-            //cout << "acceleration: " << acceleration << " ref_vel: " << ref_vel << endl;
-            // t = 10/ref_vel + ((goal_speed - ref_vel)/2)
-
 
             double ref_x = my_car_x;
             double ref_y = my_car_y;
@@ -369,7 +416,7 @@ int main() {
             }
 
             // set how far to plan for the target the longer the smother
-            double target_x = 30.0;
+            double target_x = 50.0;
 
             // TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
             // 30 * .02 = .6 sec
@@ -411,6 +458,7 @@ int main() {
             }
 
             //calculate how to break up spline points so that we set velocity
+            target_x = 30;
             double target_y = s(target_x);
             double target_dist = sqrt((target_x)*(target_x)+(target_y)*(target_y));
 
@@ -441,7 +489,6 @@ int main() {
               next_y_vals.push_back(y_point);
 
             }
-
 
             msgJson["next_x"] = next_x_vals;
             msgJson["next_y"] = next_y_vals;
